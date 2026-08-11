@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Randomizer de Episodios</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <h1>📺 Randomizer de Episodios</h1>
+      <p class="subtitle">Elige tu carpeta de episodios y mira uno al azar cada vez.</p>
+    </header>
+
+    <main id="main">
+      <section id="pickStage" class="stage">
+        <button id="pickBtn" class="btn-primary">📂 Elegir carpeta de episodios</button>
+        <p class="hint">Todo corre en tu navegador — ningún archivo se sube a ningún servidor.
+          Funciona con subcarpetas (por ejemplo, una por temporada) y reconoce nombres tipo
+          <code>S01E02</code>, <code>1x02</code> o carpetas "Temporada 1"; si no reconoce el
+          patrón, igual lo agrega a la lista con el nombre del archivo.</p>
+        <p id="compatWarning" class="warning" hidden>
+          Tu navegador no soporta el selector de carpetas nativo — se usará un selector de
+          archivos alternativo (funciona igual, solo se ve distinto).
+        </p>
+      </section>
+
+      <section id="libraryStage" class="stage" hidden>
+        <div class="library-head">
+          <div>
+            <p class="count"><span id="epCount">0</span> episodios encontrados</p>
+            <button id="rescanBtn" class="btn-link">Cambiar carpeta</button>
+          </div>
+          <button id="randomBtn" class="btn-primary btn-big">🎲 Reproducir uno al azar</button>
+        </div>
+
+        <div id="playerWrap" class="player-wrap" hidden>
+          <video id="player" controls></video>
+          <div class="now-playing">
+            <p id="nowTitle" class="now-title"></p>
+            <button id="nextRandomBtn" class="btn-secondary">🔀 Siguiente al azar</button>
+          </div>
+        </div>
+
+        <details id="listDetails" class="list-details">
+          <summary>Ver lista completa de episodios</summary>
+          <div id="episodeList" class="episode-list"></div>
+        </details>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
