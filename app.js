@@ -3,17 +3,22 @@
    Access API, con fallback a <input webkitdirectory>); ningún archivo se
    sube ni se envía a ningún servidor.
    Modo servidor: si la página se sirve desde server.js (ver README), al
-   cargar se detecta el endpoint /api/episodes y los videos se transmiten
-   por streaming HTTP en vez de leerse del disco de este dispositivo —
-   así se puede ver la biblioteca desde otro dispositivo (celular) en la
-   misma red o vía Tailscale mientras el servidor está corriendo. */
+   cargar se detecta el endpoint /api/episodes y los episodios se
+   reproducen por HLS (generado bajo demanda por el servidor — remux o
+   transcodificación real según el códec original, ver probe.js/
+   transcode.js) — funciona en cualquier navegador, sin instalar nada:
+   Safari/iOS lo soporta nativo, el resto usa hls.js (vendor/hls.min.js,
+   alojado localmente, sin depender de ningún CDN externo). */
 
 const VIDEO_EXT = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'];
+const STATUS_POLL_MS = 1500;
 
-let episodes = [];      // {file,path,name,season,episode,title} o {url,path,name,season,episode,title}
+let episodes = [];      // {file,path,name,season,episode,title} o {id,url,path,name,season,episode,title}
 let shuffleBag = [];    // índices pendientes por reproducir en la ronda actual
 let currentUrl = null;  // object URL activo (solo modo local), para revocarlo al cambiar de video
 let serverMode = false; // true si /api/episodes respondió al cargar la página
+let hls = null;         // instancia activa de Hls.js (si el navegador la necesita)
+let statusPollTimer = null;
 
 const pickBtn = document.getElementById('pickBtn');
 const compatWarning = document.getElementById('compatWarning');
@@ -28,8 +33,7 @@ const player = document.getElementById('player');
 const nowTitle = document.getElementById('nowTitle');
 const episodeList = document.getElementById('episodeList');
 const modeBadge = document.getElementById('modeBadge');
-const vlcLink = document.getElementById('vlcLink');
-const vlcHint = document.getElementById('vlcHint');
+const playerStatus = document.getElementById('playerStatus');
 
 if(!window.showDirectoryPicker){
   compatWarning.hidden = false;
@@ -197,36 +201,97 @@ function playEpisode(idx){
   const ep = episodes[idx];
   if(!ep) return;
   if(currentUrl){ URL.revokeObjectURL(currentUrl); currentUrl = null; }
+  stopStatusPoll();
+  destroyHls();
+
   if(ep.url){
-    /* Modo servidor: .mkv no reproduce de forma confiable en el <video>
-       nativo de los navegadores de celular (container no soportado, y
-       parte de la biblioteca usa códecs viejos que tampoco decodifica
-       ningún navegador) — en vez de mostrar un reproductor que va a
-       fallar y esperar un segundo toque en "Abrir en VLC", se abre VLC
-       directo con un solo toque. vlc://host:puerto/ruta (sin "http://"
-       adentro) — anidar un segundo "http://" después de "vlc://" hace
-       que Chrome corrompa la URL al normalizarla (se come uno de los
-       ":"), verificado en el navegador. */
-    player.hidden = true;
-    vlcLink.href = 'vlc://' + location.host + ep.url;
-    vlcLink.hidden = false;
-    vlcHint.hidden = false;
-    /* vlcLink.click() (no location.href = ...): asignar location.href a
-       un esquema sin controlador registrado dispara una navegación real
-       de la pestaña y termina recargando/perdiendo el estado de la
-       página (verificado en el navegador) — un clic real sobre el <a>
-       deja que el sistema operativo intercepte el hand-off a la app sin
-       tocar la pestaña actual. */
-    vlcLink.click();
+    playServerEpisode(ep);
   } else {
     player.hidden = false;
+    playerStatus.hidden = true;
     currentUrl = URL.createObjectURL(ep.file);
     player.src = currentUrl;
     player.play().catch(function(){ /* el navegador puede pedir interacción manual */ });
-    vlcLink.hidden = true;
-    vlcHint.hidden = true;
   }
   nowTitle.textContent = ep.title;
   playerWrap.hidden = false;
   playerWrap.scrollIntoView({ behavior:'smooth', block:'nearest' });
+}
+
+function stopStatusPoll(){
+  if(statusPollTimer){ clearTimeout(statusPollTimer); statusPollTimer = null; }
+}
+function destroyHls(){
+  if(hls){ hls.destroy(); hls = null; }
+}
+
+/* Modo servidor: el video se sirve por HLS, generado bajo demanda por
+   el servidor (remux rápido o transcodificación real, según el códec
+   original — ver README/probe.js/transcode.js). Mientras se prepara,
+   se muestra un estado amigable en vez de un reproductor roto; apenas
+   el playlist tiene al menos el primer segmento, arranca la
+   reproducción — no hace falta esperar a que el episodio completo
+   termine de procesarse. */
+function playServerEpisode(ep){
+  player.hidden = true;
+  player.removeAttribute('src');
+  player.load();
+  playerStatus.hidden = false;
+  playerStatus.className = 'player-status';
+  playerStatus.textContent = '⏳ Preparando video…';
+
+  const statusUrl = '/api/status/' + ep.id;
+
+  function poll(){
+    fetch(statusUrl, { cache: 'no-store' })
+      .then(function(res){ return res.json(); })
+      .then(function(data){
+        if(data.status === 'error'){
+          playerStatus.className = 'player-status error';
+          playerStatus.textContent = '⚠️ No se pudo reproducir este episodio. Probá con otro.';
+          return;
+        }
+        if(data.hasPlaylist){
+          startHlsPlayback(ep.url);
+          return;
+        }
+        statusPollTimer = setTimeout(poll, STATUS_POLL_MS);
+      })
+      .catch(function(){
+        // Interrupción de red momentánea: reintenta solo, sin mostrar
+        // detalles técnicos.
+        statusPollTimer = setTimeout(poll, STATUS_POLL_MS);
+      });
+  }
+  poll();
+}
+
+function startHlsPlayback(playlistUrl){
+  playerStatus.hidden = true;
+  player.hidden = false;
+
+  if(player.canPlayType('application/vnd.apple.mpegurl')){
+    // Safari/iOS: soporte nativo de HLS, sin ninguna librería.
+    player.src = playlistUrl;
+    player.play().catch(function(){});
+    return;
+  }
+  if(window.Hls && Hls.isSupported()){
+    hls = new Hls();
+    hls.loadSource(playlistUrl);
+    hls.attachMedia(player);
+    hls.on(Hls.Events.MANIFEST_PARSED, function(){ player.play().catch(function(){}); });
+    hls.on(Hls.Events.ERROR, function(evt, data){
+      if(!data.fatal) return; // hls.js ya reintenta solo los errores no fatales (red, buffer)
+      player.hidden = true;
+      playerStatus.hidden = false;
+      playerStatus.className = 'player-status error';
+      playerStatus.textContent = '⚠️ Hubo un problema reproduciendo este episodio. Probá con otro.';
+    });
+    return;
+  }
+  player.hidden = true;
+  playerStatus.hidden = false;
+  playerStatus.className = 'player-status error';
+  playerStatus.textContent = '⚠️ Este navegador no puede reproducir este video.';
 }

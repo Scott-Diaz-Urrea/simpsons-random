@@ -37,14 +37,11 @@
         </div>
 
         <div id="playerWrap" class="player-wrap" hidden>
-          <video id="player" controls></video>
-          <p id="vlcHint" class="vlc-hint" hidden>🎬 Se abrió (o debería abrirse) en la app VLC — los archivos
-            <code>.mkv</code> no reproducen de forma confiable en el navegador. Si no pasó nada, tocá el botón de
-            abajo.</p>
+          <p id="playerStatus" class="player-status" hidden></p>
+          <video id="player" controls playsinline></video>
           <div class="now-playing">
             <p id="nowTitle" class="now-title"></p>
             <div class="now-actions">
-              <a id="vlcLink" class="btn-secondary" hidden>📱 Abrir en VLC</a>
               <button id="nextRandomBtn" class="btn-secondary">🔀 Siguiente al azar</button>
             </div>
           </div>
@@ -57,6 +54,7 @@
       </section>
     </main>
   </div>
+  <script src="vendor/hls.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
