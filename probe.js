@@ -97,10 +97,17 @@ async function probe(filePath, cacheKey) {
 
   const videoOk = COMPATIBLE_VIDEO.has(videoCodec);
   const audioOk = audioCodec == null || COMPATIBLE_AUDIO.has(audioCodec);
-  const plan = (videoOk && audioOk) ? 'remux' : 'transcode';
+  /* videoOk/audioOk se evalúan por separado — un archivo con video ya
+     compatible pero audio no (ej. H.264 + MP3, bastante común en esta
+     biblioteca) solo necesita recodificar el audio; forzar también un
+     recodificado de video ahí sería carísimo en CPU para nada (ver
+     transcode.js, que arma los argumentos de ffmpeg usando estos dos
+     valores de forma independiente). "plan" queda solo como etiqueta
+     legible para logs/depuración. */
+  const plan = (videoOk && audioOk) ? 'copy' : (!videoOk && !audioOk) ? 'transcode' : (!videoOk ? 'video-encode' : 'audio-encode');
 
   const result = {
-    ok: true, plan, videoCodec, audioCodec, container, duration,
+    ok: true, plan, videoOk, audioOk, videoCodec, audioCodec, container, duration,
     width: videoStream.width || null, height: videoStream.height || null
   };
   cache[key] = result;

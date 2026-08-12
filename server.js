@@ -144,7 +144,7 @@ async function ensureJobStarted(id, sourcePath) {
     cache.jobs.set(id, { status: 'error', error: info.error });
     return { status: 'error', error: info.error };
   }
-  startJob(id, sourcePath, info.plan);
+  startJob(id, sourcePath, { videoOk: info.videoOk, audioOk: info.audioOk });
   return cache.getStatus(id);
 }
 

@@ -17,8 +17,15 @@ const cache = require('./hlsCache.js');
 const SEGMENT_SECONDS = 6;
 
 /* Si ya hay un job en curso para este id, los pedidos concurrentes se
-   enganchan al mismo proceso en vez de lanzar un ffmpeg duplicado. */
-function startJob(id, sourcePath, plan) {
+   enganchan al mismo proceso en vez de lanzar un ffmpeg duplicado.
+   videoOk/audioOk (de probe.js) se evalúan por separado: un archivo con
+   video ya compatible pero audio no (H.264+MP3, común en esta
+   biblioteca) solo recodifica el audio — copiar el video es
+   prácticamente instantáneo, mientras que recodificarlo sin necesidad
+   es la parte lenta (minutos de CPU por episodio). */
+function startJob(id, sourcePath, opts) {
+  const videoOk = !!(opts && opts.videoOk);
+  const audioOk = !!(opts && opts.audioOk);
   const existing = cache.jobs.get(id);
   if (existing && existing.status === 'processing') return existing;
 
@@ -33,12 +40,18 @@ function startJob(id, sourcePath, plan) {
     }
   } catch (e) { /* carpeta recién creada, puede no tener nada aún */ }
 
-  const args = ['-y', '-i', sourcePath, '-map', '0:v:0', '-map', '0:a:0?'];
-  if (plan === 'remux') {
-    args.push('-c:v', 'copy', '-c:a', 'copy');
-  } else {
-    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '21', '-c:a', 'aac', '-b:a', '160k', '-ac', '2');
-  }
+  /* -loglevel error: por defecto ffmpeg imprime una línea de progreso
+     por cuadro (miles de líneas en un episodio de 20+ minutos) — el
+     listener de stderr de más abajo (necesario para el mensaje de
+     error si algo falla) tiene que procesar cada una, y eso genera
+     suficiente contrapresión en el pipe como para frenar al propio
+     ffmpeg: medido en la práctica, el mismo archivo pasó de 88s a 29s
+     solo con este cambio, sin tocar nada más. */
+  const args = ['-y', '-loglevel', 'error', '-i', sourcePath, '-map', '0:v:0', '-map', '0:a:0?'];
+  args.push('-c:v', videoOk ? 'copy' : 'libx264');
+  if (!videoOk) args.push('-preset', 'veryfast', '-crf', '21');
+  args.push('-c:a', audioOk ? 'copy' : 'aac');
+  if (!audioOk) args.push('-b:a', '160k', '-ac', '2');
   args.push(
     '-f', 'hls',
     '-hls_time', String(SEGMENT_SECONDS),
@@ -48,7 +61,7 @@ function startJob(id, sourcePath, plan) {
     playlistPath
   );
 
-  const job = { status: 'processing', startedAt: Date.now(), plan };
+  const job = { status: 'processing', startedAt: Date.now(), videoOk, audioOk };
   cache.jobs.set(id, job);
 
   let proc;
