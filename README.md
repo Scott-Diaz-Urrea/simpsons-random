@@ -46,20 +46,16 @@ navegador:
 Pedido de reproducción
         │
         ▼
-probe.js (ffprobe) — analiza el códec real del archivo, con caché en
-        │             disco (no vuelve a analizar un archivo sin cambios)
+probe.js (ffprobe) — analiza el códec real del video Y el audio por
+        │             separado, con caché en disco (no vuelve a
+        │             analizar un archivo sin cambios)
         ▼
-   ¿video H.264 + audio AAC?
-        │                    │
-       sí                    no
-        │                    │
-        ▼                    ▼
-  REMUX (rápido,        TRANSCODE (recodifica
-  -c copy, sin           video/audio, más lento
-  pérdida)                pero compatible)
-        │                    │
-        └────────┬───────────┘
-                 ▼
+   video ¿H.264?  →  sí: copiar (-c:v copy) · no: recodificar (libx264)
+   audio ¿AAC?     →  sí: copiar (-c:a copy) · no: recodificar (aac)
+        │
+        ▼  (cada stream se copia o recodifica de forma independiente —
+        │   un archivo con video ya compatible pero audio no, bastante
+        │   común, no paga el costo de recodificar el video para nada)
        transcode.js genera HLS (.m3u8 + segmentos .ts) en
        cache/hls/<id>/ — el reproductor puede arrancar apenas
        existen los primeros segmentos, sin esperar el episodio
@@ -81,6 +77,36 @@ apenas hay contenido reproducible, arranca solo. Si el archivo está
 corrupto/incompleto o falla el procesamiento, se muestra un aviso genérico
 ("⚠️ No se pudo reproducir este episodio. Probá con otro.") sin exponer
 detalles internos.
+
+### Transmitir a la TV (AirPlay / Google Cast)
+
+En modo servidor aparecen botones para enviar el episodio actual directo a
+la TV (streaming real — el TV le pide el video al servidor por su cuenta,
+no pasa por tu celular/laptop):
+
+- **📺 AirPlay** (solo Safari — Mac o iPhone/iPad): nativo del navegador,
+  sin ninguna librería. Aparece automáticamente si tu navegador lo soporta.
+- **Ícono de Cast** (Chrome, cualquier plataforma): usa el
+  [SDK oficial de Google Cast](https://developers.google.com/cast) para
+  Chromecast, o cualquier Smart TV con Android TV/Google TV (Sony, TCL,
+  Philips, Hisense, etc. con Chromecast integrado). A diferencia de
+  hls.js, este SDK **se carga en vivo desde `gstatic.com`** — el
+  descubrimiento de dispositivos Cast depende de la infraestructura de
+  Google, no se puede alojar localmente.
+
+**Dos limitaciones a tener en cuenta:**
+
+1. **El TV y el servidor tienen que estar en la misma red local.** El TV le
+   pide el video directo a `http://<IP-del-servidor>:8090/...`, así que si
+   accedés a la app desde afuera de casa vía Tailscale, el botón de Cast no
+   va a encontrar el TV (a menos que el TV también esté en tu red
+   Tailscale, algo que casi ningún Smart TV soporta). AirPlay tiene la
+   misma limitación por naturaleza del protocolo.
+2. **El botón de Google Cast puede no aparecer si accedés por IP sin
+   HTTPS** (`http://100.x.x.x:8090` en vez de `http://localhost:8090`) —
+   Chrome exige un "contexto seguro" para varias APIs que usa el SDK de
+   Cast, y solo `localhost` está exento de esa exigencia sobre HTTP plano.
+   Si el botón no aparece desde el celular, esa es la causa más probable.
 
 ### ⚠️ Este servidor no tiene autenticación
 

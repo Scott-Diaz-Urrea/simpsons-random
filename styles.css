@@ -62,8 +62,12 @@ body{
 .player-status.error{ color:#E8846B; border-color:#4A2A22; background:#2A1D1A; }
 .now-playing{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; flex-wrap:wrap; }
 .now-title{ margin:0; font-weight:600; color:var(--ink-soft); }
-.now-actions{ display:flex; gap:10px; flex-wrap:wrap; }
+.now-actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
 .now-actions .btn-secondary{ text-decoration:none; display:inline-flex; align-items:center; }
+.cast-launcher{
+  --connected-color:var(--accent); --disconnected-color:var(--ink-soft);
+  width:34px; height:34px; cursor:pointer;
+}
 
 .list-details{ margin-top:28px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
 .list-details summary{

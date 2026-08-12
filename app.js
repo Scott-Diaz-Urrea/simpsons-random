@@ -13,7 +13,16 @@
    "Vistos hoy": "Reproducir al azar" nunca repite un episodio ya visto
    en el día actual — se registran en una lista visible y se resetean
    solos al cambiar la fecha (ver watched.js del lado servidor, o
-   localStorage del lado cliente en modo local). */
+   localStorage del lado cliente en modo local).
+
+   Transmitir a TV: AirPlay usa la API nativa de Safari (sin
+   dependencias, funciona en cualquier modo). Google Cast necesita el
+   SDK oficial de Google (cast_sender.js, cargado en index.html desde
+   gstatic.com — no se puede alojar localmente, el descubrimiento de
+   Chromecast/Android TV depende de la infraestructura de Google) y
+   solo tiene sentido en modo servidor: el TV necesita poder pedirle el
+   video directo al servidor por red, algo que un archivo local
+   (blob: URL) nunca puede ofrecerle a otro dispositivo. */
 
 const VIDEO_EXT = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'];
 const STATUS_POLL_MS = 1500;
@@ -49,6 +58,11 @@ const playerStatus = document.getElementById('playerStatus');
 const watchedDetails = document.getElementById('watchedDetails');
 const watchedListCount = document.getElementById('watchedListCount');
 const watchedList = document.getElementById('watchedList');
+const airplayBtn = document.getElementById('airplayBtn');
+const castBtn = document.getElementById('castBtn');
+
+let castContext = null; // instancia de cast.framework.CastContext, una vez que el SDK de Google carga
+let castApiReady = false;
 
 if(!window.showDirectoryPicker){
   compatWarning.hidden = false;
@@ -61,6 +75,64 @@ rescanBtn.addEventListener('click', function(){
 randomBtn.addEventListener('click', playRandom);
 nextRandomBtn.addEventListener('click', playRandom);
 prevBtn.addEventListener('click', playPrevious);
+
+if(player.webkitShowPlaybackTargetPicker){
+  airplayBtn.hidden = false;
+  airplayBtn.addEventListener('click', function(){ player.webkitShowPlaybackTargetPicker(); });
+}
+
+/* Google Cast: window.__onGCastApiAvailable (definido en index.html,
+   antes de que cargue el SDK) reenvía acá este evento apenas el SDK
+   de Google termina de cargar. Nunca se muestra en modo local (ver
+   updateCastVisibility): un archivo local (blob: URL) no existe fuera
+   de esta pestaña, así que ningún Chromecast podría reproducirlo. */
+window.addEventListener('gcast-available', function(e){
+  if(!e.detail || !window.cast || !window.chrome || !chrome.cast) return;
+  castApiReady = true;
+  castContext = cast.framework.CastContext.getInstance();
+  castContext.setOptions({
+    receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+    autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+  });
+  castContext.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, function(evt){
+    const started = evt.sessionState === cast.framework.SessionState.SESSION_STARTED
+      || evt.sessionState === cast.framework.SessionState.SESSION_RESUMED;
+    if(started) castCurrentEpisode();
+  });
+  updateCastVisibility();
+});
+function updateCastVisibility(){
+  castBtn.hidden = !(castApiReady && serverMode);
+}
+
+function currentEpisode(){
+  if(historyPos < 0) return null;
+  return episodes[playHistory[historyPos]] || null;
+}
+/* Envía el episodio que se está viendo ahora mismo al TV conectado —
+   se llama tanto al iniciar/retomar una sesión de Cast (arriba) como
+   cada vez que arranca un episodio nuevo mientras ya se está
+   transmitiendo (ver playServerEpisode), para que "Siguiente al azar"/
+   "Anterior" también avancen en la TV, no solo en este dispositivo. */
+function castCurrentEpisode(){
+  const ep = currentEpisode();
+  if(ep) castEpisode(ep);
+}
+function castEpisode(ep){
+  if(!castContext || !ep || !ep.url) return;
+  const session = castContext.getCurrentSession();
+  if(!session) return;
+  const absoluteUrl = location.origin + ep.url;
+  const mediaInfo = new chrome.cast.media.MediaInfo(absoluteUrl, 'application/x-mpegURL');
+  mediaInfo.streamType = chrome.cast.media.StreamType.BUFFERED;
+  const metadata = new chrome.cast.media.GenericMediaMetadata();
+  metadata.title = ep.title;
+  mediaInfo.metadata = metadata;
+  const request = new chrome.cast.media.LoadRequest(mediaInfo);
+  session.loadMedia(request).catch(function(err){
+    console.warn('No se pudo transmitir este episodio a la TV.', err);
+  });
+}
 
 loadServerLibrary(); // detecta modo servidor al cargar; si no hay servidor, no hace nada
 
@@ -78,6 +150,7 @@ async function loadServerLibrary(){
   if(modeBadge) modeBadge.hidden = false;
   rescanBtn.textContent = 'Actualizar biblioteca';
   episodes = list;
+  updateCastVisibility();
   await loadWatchedServer();
   renderLibrary();
 }
@@ -357,6 +430,7 @@ function playServerEpisode(ep){
         if(data.status === 'ready'){
           markWatched(ep);
           startHlsPlayback(ep.url);
+          castCurrentEpisode(); // si ya hay una TV conectada, la sigue también
           return;
         }
         statusPollTimer = setTimeout(poll, STATUS_POLL_MS);

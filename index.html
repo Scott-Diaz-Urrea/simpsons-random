@@ -46,6 +46,8 @@
             <div class="now-actions">
               <button id="prevBtn" class="btn-secondary" disabled>⏮ Anterior</button>
               <button id="nextRandomBtn" class="btn-secondary">🔀 Siguiente al azar</button>
+              <button id="airplayBtn" class="btn-secondary" hidden>📺 AirPlay</button>
+              <google-cast-launcher id="castBtn" class="cast-launcher" hidden></google-cast-launcher>
             </div>
           </div>
         </div>
@@ -63,6 +65,17 @@
     </main>
   </div>
   <script src="vendor/hls.min.js"></script>
+  <!-- Google Cast SDK: servicio en vivo (descubrimiento de dispositivos
+       Chromecast/Android TV depende de la infraestructura de Google), no
+       se puede alojar localmente como hls.js. El callback se define acá
+       porque el SDK lo invoca antes de que el módulo app.js termine de
+       cargar; app.js escucha el evento puente 'gcast-available'. -->
+  <script>
+    window.__onGCastApiAvailable = function(isAvailable){
+      window.dispatchEvent(new CustomEvent('gcast-available', { detail: isAvailable }));
+    };
+  </script>
+  <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
