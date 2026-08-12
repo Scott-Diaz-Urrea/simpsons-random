@@ -18,6 +18,7 @@ const path = require('path');
 const { probe } = require('./probe.js');
 const { startJob } = require('./transcode.js');
 const cache = require('./hlsCache.js');
+const watched = require('./watched.js');
 
 const PORT = process.env.PORT || 8090;
 const ROOT = __dirname;
@@ -172,6 +173,18 @@ function handlePlaylist(req, res, id) {
   });
 }
 
+function handleWatchedGet(req, res) {
+  sendJSON(res, 200, watched.getWatched());
+}
+
+function handleWatchedMark(req, res, id) {
+  if (req.method !== 'POST') { res.writeHead(405); res.end('Method Not Allowed'); return; }
+  const resolved = resolveId(id);
+  if (!resolved) { sendJSON(res, 404, { error: 'Episodio no encontrado.' }); return; }
+  const title = parseEpisodeInfo({ name: path.basename(resolved.relPath), path: resolved.relPath }).title;
+  sendJSON(res, 200, watched.markWatched(id, title));
+}
+
 function handleSegment(req, res, id, segmentName) {
   if (!SEGMENT_NAME_RE.test(segmentName)) { res.writeHead(400); res.end('Nombre de segmento inválido.'); return; }
   const resolved = resolveId(id);
@@ -204,6 +217,11 @@ const server = http.createServer((req, res) => {
 
   const statusMatch = pathname.match(/^\/api\/status\/([a-f0-9]{16})$/);
   if (statusMatch) { handleStatus(req, res, statusMatch[1]).catch(err => { sendJSON(res, 500, { status: 'error', error: 'Error interno.' }); }); return; }
+
+  if (pathname === '/api/watched') { handleWatchedGet(req, res); return; }
+
+  const watchedMatch = pathname.match(/^\/api\/watched\/([a-f0-9]{16})$/);
+  if (watchedMatch) { handleWatchedMark(req, res, watchedMatch[1]); return; }
 
   const playlistMatch = pathname.match(/^\/hls\/([a-f0-9]{16})\/playlist\.m3u8$/);
   if (playlistMatch) { handlePlaylist(req, res, playlistMatch[1]); return; }

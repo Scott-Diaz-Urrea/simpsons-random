@@ -8,32 +8,47 @@
    transcodificación real según el códec original, ver probe.js/
    transcode.js) — funciona en cualquier navegador, sin instalar nada:
    Safari/iOS lo soporta nativo, el resto usa hls.js (vendor/hls.min.js,
-   alojado localmente, sin depender de ningún CDN externo). */
+   alojado localmente, sin depender de ningún CDN externo).
+
+   "Vistos hoy": "Reproducir al azar" nunca repite un episodio ya visto
+   en el día actual — se registran en una lista visible y se resetean
+   solos al cambiar la fecha (ver watched.js del lado servidor, o
+   localStorage del lado cliente en modo local). */
 
 const VIDEO_EXT = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'];
 const STATUS_POLL_MS = 1500;
+const WATCHED_LS_KEY = 'simpsons_watched_v1';
 
 let episodes = [];      // {file,path,name,season,episode,title} o {id,url,path,name,season,episode,title}
-let shuffleBag = [];    // índices pendientes por reproducir en la ronda actual
 let currentUrl = null;  // object URL activo (solo modo local), para revocarlo al cambiar de video
 let serverMode = false; // true si /api/episodes respondió al cargar la página
 let hls = null;         // instancia activa de Hls.js (si el navegador la necesita)
 let statusPollTimer = null;
+let watchedIds = new Set(); // claves (ep.id o ep.path) ya vistas "hoy"
+let watchedItems = [];      // [{id,title,watchedAt}] para mostrar la lista
+let playHistory = [];       // índices en `episodes`, en el orden en que se fueron reproduciendo
+let historyPos = -1;        // posición actual dentro de playHistory (permite "Anterior")
 
 const pickBtn = document.getElementById('pickBtn');
 const compatWarning = document.getElementById('compatWarning');
 const pickStage = document.getElementById('pickStage');
 const libraryStage = document.getElementById('libraryStage');
 const epCount = document.getElementById('epCount');
+const watchedCount = document.getElementById('watchedCount');
+const allWatchedMsg = document.getElementById('allWatchedMsg');
 const rescanBtn = document.getElementById('rescanBtn');
 const randomBtn = document.getElementById('randomBtn');
 const nextRandomBtn = document.getElementById('nextRandomBtn');
+const prevBtn = document.getElementById('prevBtn');
 const playerWrap = document.getElementById('playerWrap');
 const player = document.getElementById('player');
 const nowTitle = document.getElementById('nowTitle');
 const episodeList = document.getElementById('episodeList');
 const modeBadge = document.getElementById('modeBadge');
 const playerStatus = document.getElementById('playerStatus');
+const watchedDetails = document.getElementById('watchedDetails');
+const watchedListCount = document.getElementById('watchedListCount');
+const watchedList = document.getElementById('watchedList');
 
 if(!window.showDirectoryPicker){
   compatWarning.hidden = false;
@@ -45,6 +60,7 @@ rescanBtn.addEventListener('click', function(){
 });
 randomBtn.addEventListener('click', playRandom);
 nextRandomBtn.addEventListener('click', playRandom);
+prevBtn.addEventListener('click', playPrevious);
 
 loadServerLibrary(); // detecta modo servidor al cargar; si no hay servidor, no hace nada
 
@@ -62,7 +78,7 @@ async function loadServerLibrary(){
   if(modeBadge) modeBadge.hidden = false;
   rescanBtn.textContent = 'Actualizar biblioteca';
   episodes = list;
-  resetShuffleBag();
+  await loadWatchedServer();
   renderLibrary();
 }
 
@@ -70,7 +86,7 @@ async function handlePickFolder(){
   const files = window.showDirectoryPicker ? await pickFolderNative() : await pickFolderFallback();
   if(!files || files.length === 0) return;
   episodes = files.map(parseEpisodeInfo).sort(compareEpisodes);
-  resetShuffleBag();
+  loadWatchedLocal();
   renderLibrary();
 }
 
@@ -156,25 +172,17 @@ function compareEpisodes(a, b){
   return a.path.localeCompare(b.path);
 }
 
-function resetShuffleBag(){
-  shuffleBag = shuffle(episodes.map(function(_, i){ return i; }));
-}
-function shuffle(arr){
-  const a = arr.slice();
-  for(let i=a.length-1;i>0;i--){
-    const j = Math.floor(Math.random()*(i+1));
-    const tmp=a[i]; a[i]=a[j]; a[j]=tmp;
-  }
-  return a;
-}
+function watchKeyOf(ep){ return ep.id || ep.path; }
 
 function renderLibrary(){
   pickStage.hidden = true;
   libraryStage.hidden = false;
   epCount.textContent = episodes.length;
   episodeList.innerHTML = episodes.map(function(ep, i){
-    return '<button class="episode-row" data-i="'+i+'">'+
-      '<span class="ep-title">'+escapeHtml(ep.title)+'</span>'+
+    const key = watchKeyOf(ep);
+    const isWatched = watchedIds.has(key);
+    return '<button class="episode-row'+(isWatched?' watched':'')+'" data-i="'+i+'" data-key="'+escapeHtml(key)+'">'+
+      '<span class="ep-title">'+(isWatched?'✓ ':'')+escapeHtml(ep.title)+'</span>'+
       '<span class="ep-file">'+escapeHtml(ep.name)+'</span>'+
     '</button>';
   }).join('');
@@ -183,23 +191,112 @@ function renderLibrary(){
       playEpisode(Number(btn.getAttribute('data-i')));
     });
   });
+  renderWatchedList();
 }
 function escapeHtml(s){
   return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-/* Sistema de "bolsa sin repetición": se vacía la bolsa completa de
-   episodios antes de volver a repetir alguno, en vez de un random puro
-   (que podría repetir el mismo episodio varias veces seguidas). */
+/* --- "Vistos hoy": no repetir episodios ya vistos, con reset diario ---
+   Modo servidor: persistido en el servidor (compartido entre todos los
+   dispositivos que usan el mismo servidor — /api/watched, ver
+   watched.js). Modo local: persistido en localStorage de este
+   navegador únicamente (no hay servidor donde guardarlo). En ambos
+   casos la clave del día (YYYY-MM-DD) determina el reset: si cambió
+   desde la última vez, la lista arranca vacía de nuevo. */
+function todayKey(){
+  const d = new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+async function loadWatchedServer(){
+  try{
+    const res = await fetch('/api/watched', { cache:'no-store' });
+    const data = await res.json();
+    watchedItems = Array.isArray(data.items) ? data.items : [];
+  }catch(e){
+    watchedItems = [];
+  }
+  watchedIds = new Set(watchedItems.map(function(it){ return it.id; }));
+}
+function loadWatchedLocal(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(WATCHED_LS_KEY) || 'null'); }catch(e){ saved = null; }
+  if(!saved || saved.day !== todayKey()) saved = { day: todayKey(), items: [] };
+  watchedItems = saved.items;
+  watchedIds = new Set(watchedItems.map(function(it){ return it.id; }));
+}
+function markWatched(ep){
+  const key = watchKeyOf(ep);
+  if(watchedIds.has(key)) return;
+  watchedIds.add(key);
+  markRowWatched(key);
+  if(serverMode){
+    fetch('/api/watched/'+key, { method:'POST' })
+      .then(function(res){ return res.json(); })
+      .then(function(data){ watchedItems = Array.isArray(data.items) ? data.items : watchedItems; renderWatchedList(); })
+      .catch(function(){ /* si falla la marca en el servidor, igual queda excluida localmente por esta sesión */ });
+  } else {
+    watchedItems.push({ id: key, title: ep.title, watchedAt: Date.now() });
+    try{ localStorage.setItem(WATCHED_LS_KEY, JSON.stringify({ day: todayKey(), items: watchedItems })); }catch(e){}
+    renderWatchedList();
+  }
+}
+function markRowWatched(key){
+  const row = episodeList.querySelector('[data-key="'+CSS.escape(key)+'"]');
+  if(row && !row.classList.contains('watched')){
+    row.classList.add('watched');
+    const titleEl = row.querySelector('.ep-title');
+    if(titleEl) titleEl.textContent = '✓ ' + titleEl.textContent;
+  }
+}
+function renderWatchedList(){
+  const n = watchedItems.length;
+  watchedCount.hidden = n === 0;
+  watchedCount.textContent = n + (n===1 ? ' episodio visto hoy' : ' episodios vistos hoy');
+  watchedDetails.hidden = n === 0;
+  watchedListCount.textContent = n;
+  watchedList.innerHTML = watchedItems.slice().reverse().map(function(it){
+    const time = new Date(it.watchedAt).toLocaleTimeString('es-CL', { hour:'2-digit', minute:'2-digit' });
+    return '<div class="episode-row watched"><span class="ep-title">'+escapeHtml(it.title)+'</span>'+
+      '<span class="ep-file">'+time+'</span></div>';
+  }).join('');
+}
+
+/* "Reproducir al azar" solo elige entre episodios no vistos hoy. Si ya
+   se vieron todos, muestra un mensaje en vez de repetir alguno. */
 function playRandom(){
   if(episodes.length === 0) return;
-  if(shuffleBag.length === 0) resetShuffleBag();
-  const idx = shuffleBag.pop();
+  const pool = [];
+  for(let i=0;i<episodes.length;i++){ if(!watchedIds.has(watchKeyOf(episodes[i]))) pool.push(i); }
+  if(pool.length === 0){
+    allWatchedMsg.hidden = false;
+    return;
+  }
+  allWatchedMsg.hidden = true;
+  const idx = pool[Math.floor(Math.random()*pool.length)];
   playEpisode(idx);
 }
-function playEpisode(idx){
+/* Historial de reproducción: permite "⏮ Anterior" sin depender de que
+   el azar vuelva a elegir lo mismo. Si se viene navegando "para atrás"
+   y se elige algo nuevo (azar o de la lista), se corta el tramo hacia
+   adelante que había quedado — mismo criterio que el back/forward de
+   un navegador. */
+function pushHistory(idx){
+  playHistory = playHistory.slice(0, historyPos + 1);
+  playHistory.push(idx);
+  historyPos = playHistory.length - 1;
+  prevBtn.disabled = historyPos <= 0;
+}
+function playPrevious(){
+  if(historyPos <= 0) return;
+  historyPos--;
+  prevBtn.disabled = historyPos <= 0;
+  playEpisode(playHistory[historyPos], true);
+}
+function playEpisode(idx, fromHistory){
   const ep = episodes[idx];
   if(!ep) return;
+  if(!fromHistory) pushHistory(idx);
   if(currentUrl){ URL.revokeObjectURL(currentUrl); currentUrl = null; }
   stopStatusPoll();
   destroyHls();
@@ -212,6 +309,7 @@ function playEpisode(idx){
     currentUrl = URL.createObjectURL(ep.file);
     player.src = currentUrl;
     player.play().catch(function(){ /* el navegador puede pedir interacción manual */ });
+    markWatched(ep);
   }
   nowTitle.textContent = ep.title;
   playerWrap.hidden = false;
@@ -228,10 +326,9 @@ function destroyHls(){
 /* Modo servidor: el video se sirve por HLS, generado bajo demanda por
    el servidor (remux rápido o transcodificación real, según el códec
    original — ver README/probe.js/transcode.js). Mientras se prepara,
-   se muestra un estado amigable en vez de un reproductor roto; apenas
-   el playlist tiene al menos el primer segmento, arranca la
-   reproducción — no hace falta esperar a que el episodio completo
-   termine de procesarse. */
+   se muestra un estado amigable en vez de un reproductor roto; recién
+   arranca cuando el procesamiento está 100% listo (duración total
+   conocida, seek funcionando en toda la barra desde el inicio). */
 function playServerEpisode(ep){
   player.hidden = true;
   player.removeAttribute('src');
@@ -258,6 +355,7 @@ function playServerEpisode(ep){
            vez de comportarse como una transmisión en vivo mientras el
            servidor todavía está procesando. */
         if(data.status === 'ready'){
+          markWatched(ep);
           startHlsPlayback(ep.url);
           return;
         }

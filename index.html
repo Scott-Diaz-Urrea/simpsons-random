@@ -31,10 +31,12 @@
         <div class="library-head">
           <div>
             <p class="count"><span id="epCount">0</span> episodios encontrados</p>
+            <p id="watchedCount" class="count-sub" hidden></p>
             <button id="rescanBtn" class="btn-link">Cambiar carpeta</button>
           </div>
           <button id="randomBtn" class="btn-primary btn-big">🎲 Reproducir uno al azar</button>
         </div>
+        <p id="allWatchedMsg" class="hint" hidden>🎉 Ya viste todos los episodios de hoy — ¡volvé mañana para más!</p>
 
         <div id="playerWrap" class="player-wrap" hidden>
           <p id="playerStatus" class="player-status" hidden></p>
@@ -42,10 +44,16 @@
           <div class="now-playing">
             <p id="nowTitle" class="now-title"></p>
             <div class="now-actions">
+              <button id="prevBtn" class="btn-secondary" disabled>⏮ Anterior</button>
               <button id="nextRandomBtn" class="btn-secondary">🔀 Siguiente al azar</button>
             </div>
           </div>
         </div>
+
+        <details id="watchedDetails" class="list-details" hidden>
+          <summary>Vistos hoy (<span id="watchedListCount">0</span>)</summary>
+          <div id="watchedList" class="episode-list"></div>
+        </details>
 
         <details id="listDetails" class="list-details">
           <summary>Ver lista completa de episodios</summary>
