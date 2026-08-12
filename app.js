@@ -198,20 +198,34 @@ function playEpisode(idx){
   if(!ep) return;
   if(currentUrl){ URL.revokeObjectURL(currentUrl); currentUrl = null; }
   if(ep.url){
-    player.src = ep.url; // modo servidor: streaming HTTP directo, con soporte de Range/seek
-    /* vlc://host:puerto/ruta (sin "http://" adentro) — anidar un segundo
-       "http://" después de "vlc://" hace que Chrome corrompa la URL al
-       normalizarla (se come uno de los ":"), verificado en el navegador. */
+    /* Modo servidor: .mkv no reproduce de forma confiable en el <video>
+       nativo de los navegadores de celular (container no soportado, y
+       parte de la biblioteca usa códecs viejos que tampoco decodifica
+       ningún navegador) — en vez de mostrar un reproductor que va a
+       fallar y esperar un segundo toque en "Abrir en VLC", se abre VLC
+       directo con un solo toque. vlc://host:puerto/ruta (sin "http://"
+       adentro) — anidar un segundo "http://" después de "vlc://" hace
+       que Chrome corrompa la URL al normalizarla (se come uno de los
+       ":"), verificado en el navegador. */
+    player.hidden = true;
     vlcLink.href = 'vlc://' + location.host + ep.url;
     vlcLink.hidden = false;
     vlcHint.hidden = false;
+    /* vlcLink.click() (no location.href = ...): asignar location.href a
+       un esquema sin controlador registrado dispara una navegación real
+       de la pestaña y termina recargando/perdiendo el estado de la
+       página (verificado en el navegador) — un clic real sobre el <a>
+       deja que el sistema operativo intercepte el hand-off a la app sin
+       tocar la pestaña actual. */
+    vlcLink.click();
   } else {
+    player.hidden = false;
     currentUrl = URL.createObjectURL(ep.file);
     player.src = currentUrl;
+    player.play().catch(function(){ /* el navegador puede pedir interacción manual */ });
     vlcLink.hidden = true;
     vlcHint.hidden = true;
   }
-  player.play().catch(function(){ /* el navegador puede pedir interacción manual */ });
   nowTitle.textContent = ep.title;
   playerWrap.hidden = false;
   playerWrap.scrollIntoView({ behavior:'smooth', block:'nearest' });
