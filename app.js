@@ -251,7 +251,13 @@ function playServerEpisode(ep){
           playerStatus.textContent = '⚠️ No se pudo reproducir este episodio. Probá con otro.';
           return;
         }
-        if(data.hasPlaylist){
+        /* Se espera a 'ready' (no solo a que exista el playlist) para
+           que el reproductor siempre reciba un HLS ya cerrado (con
+           #EXT-X-ENDLIST) — así muestra la duración total y permite
+           adelantar/rebobinar en toda la barra desde el arranque, en
+           vez de comportarse como una transmisión en vivo mientras el
+           servidor todavía está procesando. */
+        if(data.status === 'ready'){
           startHlsPlayback(ep.url);
           return;
         }
