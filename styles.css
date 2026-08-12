@@ -50,8 +50,12 @@ body{
 
 .player-wrap{ margin-top:28px; }
 #player{ width:100%; border-radius:var(--radius); background:#000; display:block; }
+.vlc-hint{ color:var(--ink-faint); font-size:13px; margin:10px 0 0; }
+.vlc-hint code{ background:var(--bg-raised); padding:1px 6px; border-radius:4px; color:var(--ink-soft); }
 .now-playing{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; flex-wrap:wrap; }
 .now-title{ margin:0; font-weight:600; color:var(--ink-soft); }
+.now-actions{ display:flex; gap:10px; flex-wrap:wrap; }
+.now-actions .btn-secondary{ text-decoration:none; display:inline-flex; align-items:center; }
 
 .list-details{ margin-top:28px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
 .list-details summary{

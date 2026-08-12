@@ -28,6 +28,8 @@ const player = document.getElementById('player');
 const nowTitle = document.getElementById('nowTitle');
 const episodeList = document.getElementById('episodeList');
 const modeBadge = document.getElementById('modeBadge');
+const vlcLink = document.getElementById('vlcLink');
+const vlcHint = document.getElementById('vlcHint');
 
 if(!window.showDirectoryPicker){
   compatWarning.hidden = false;
@@ -197,9 +199,17 @@ function playEpisode(idx){
   if(currentUrl){ URL.revokeObjectURL(currentUrl); currentUrl = null; }
   if(ep.url){
     player.src = ep.url; // modo servidor: streaming HTTP directo, con soporte de Range/seek
+    /* vlc://host:puerto/ruta (sin "http://" adentro) — anidar un segundo
+       "http://" después de "vlc://" hace que Chrome corrompa la URL al
+       normalizarla (se come uno de los ":"), verificado en el navegador. */
+    vlcLink.href = 'vlc://' + location.host + ep.url;
+    vlcLink.hidden = false;
+    vlcHint.hidden = false;
   } else {
     currentUrl = URL.createObjectURL(ep.file);
     player.src = currentUrl;
+    vlcLink.hidden = true;
+    vlcHint.hidden = true;
   }
   player.play().catch(function(){ /* el navegador puede pedir interacción manual */ });
   nowTitle.textContent = ep.title;

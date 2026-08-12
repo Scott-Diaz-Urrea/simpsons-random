@@ -38,9 +38,14 @@
 
         <div id="playerWrap" class="player-wrap" hidden>
           <video id="player" controls></video>
+          <p id="vlcHint" class="vlc-hint" hidden>¿No carga el video? Es común con archivos <code>.mkv</code> en
+            celulares — abrilo con VLC, que sí los reproduce.</p>
           <div class="now-playing">
             <p id="nowTitle" class="now-title"></p>
-            <button id="nextRandomBtn" class="btn-secondary">🔀 Siguiente al azar</button>
+            <div class="now-actions">
+              <a id="vlcLink" class="btn-secondary" hidden>📱 Abrir en VLC</a>
+              <button id="nextRandomBtn" class="btn-secondary">🔀 Siguiente al azar</button>
+            </div>
           </div>
         </div>
 
