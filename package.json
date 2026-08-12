@@ -1,0 +1,10 @@
+{
+  "name": "simpsons-random-server",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Servidor local de streaming para Randomizer de Episodios (modo servidor, cero dependencias).",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

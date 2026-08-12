@@ -16,6 +16,10 @@ body{
 .topbar{ padding:48px 0 24px; text-align:center; }
 .topbar h1{ font-size:26px; margin:0 0 8px; }
 .subtitle{ color:var(--ink-soft); margin:0; font-size:15px; }
+.mode-badge{
+  display:inline-block; margin:12px auto 0; padding:6px 14px; border-radius:999px;
+  background:#1C3327; color:#6FCF97; border:1px solid #2B4D3A; font-size:12.5px; font-weight:600;
+}
 
 .stage{ margin-top:20px; }
 

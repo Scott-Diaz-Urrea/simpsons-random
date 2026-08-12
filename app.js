@@ -1,13 +1,19 @@
-/* Randomizer de Episodios — 100% local, sin backend.
-   Todo el acceso a archivos ocurre en el navegador (File System Access API,
-   con fallback a <input webkitdirectory> para navegadores sin soporte);
-   ningún archivo se sube ni se envía a ningún servidor. */
+/* Randomizer de Episodios — modo local o modo servidor.
+   Modo local: el acceso a archivos ocurre en el navegador (File System
+   Access API, con fallback a <input webkitdirectory>); ningún archivo se
+   sube ni se envía a ningún servidor.
+   Modo servidor: si la página se sirve desde server.js (ver README), al
+   cargar se detecta el endpoint /api/episodes y los videos se transmiten
+   por streaming HTTP en vez de leerse del disco de este dispositivo —
+   así se puede ver la biblioteca desde otro dispositivo (celular) en la
+   misma red o vía Tailscale mientras el servidor está corriendo. */
 
 const VIDEO_EXT = ['mp4', 'mkv', 'webm', 'avi', 'mov', 'm4v'];
 
-let episodes = [];      // {file, path, name, season, episode, title}
+let episodes = [];      // {file,path,name,season,episode,title} o {url,path,name,season,episode,title}
 let shuffleBag = [];    // índices pendientes por reproducir en la ronda actual
-let currentUrl = null;  // object URL activo, para revocarlo al cambiar de video
+let currentUrl = null;  // object URL activo (solo modo local), para revocarlo al cambiar de video
+let serverMode = false; // true si /api/episodes respondió al cargar la página
 
 const pickBtn = document.getElementById('pickBtn');
 const compatWarning = document.getElementById('compatWarning');
@@ -21,15 +27,38 @@ const playerWrap = document.getElementById('playerWrap');
 const player = document.getElementById('player');
 const nowTitle = document.getElementById('nowTitle');
 const episodeList = document.getElementById('episodeList');
+const modeBadge = document.getElementById('modeBadge');
 
 if(!window.showDirectoryPicker){
   compatWarning.hidden = false;
 }
 
 pickBtn.addEventListener('click', handlePickFolder);
-rescanBtn.addEventListener('click', handlePickFolder);
+rescanBtn.addEventListener('click', function(){
+  if(serverMode) loadServerLibrary(); else handlePickFolder();
+});
 randomBtn.addEventListener('click', playRandom);
 nextRandomBtn.addEventListener('click', playRandom);
+
+loadServerLibrary(); // detecta modo servidor al cargar; si no hay servidor, no hace nada
+
+async function loadServerLibrary(){
+  let list;
+  try{
+    const res = await fetch('/api/episodes', { cache:'no-store' });
+    if(!res.ok) return;
+    list = await res.json();
+    if(!Array.isArray(list)) return;
+  }catch(e){
+    return; // no hay servidor corriendo (p.ej. GitHub Pages) — se queda en modo local
+  }
+  serverMode = true;
+  if(modeBadge) modeBadge.hidden = false;
+  rescanBtn.textContent = 'Actualizar biblioteca';
+  episodes = list;
+  resetShuffleBag();
+  renderLibrary();
+}
 
 async function handlePickFolder(){
   const files = window.showDirectoryPicker ? await pickFolderNative() : await pickFolderFallback();
@@ -165,9 +194,13 @@ function playRandom(){
 function playEpisode(idx){
   const ep = episodes[idx];
   if(!ep) return;
-  if(currentUrl) URL.revokeObjectURL(currentUrl);
-  currentUrl = URL.createObjectURL(ep.file);
-  player.src = currentUrl;
+  if(currentUrl){ URL.revokeObjectURL(currentUrl); currentUrl = null; }
+  if(ep.url){
+    player.src = ep.url; // modo servidor: streaming HTTP directo, con soporte de Range/seek
+  } else {
+    currentUrl = URL.createObjectURL(ep.file);
+    player.src = currentUrl;
+  }
   player.play().catch(function(){ /* el navegador puede pedir interacción manual */ });
   nowTitle.textContent = ep.title;
   playerWrap.hidden = false;
